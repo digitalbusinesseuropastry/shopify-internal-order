@@ -8,41 +8,63 @@ const SHOP = process.env.SHOP;
 const TOKEN = process.env.SHOPIFY_TOKEN;
 
 app.post("/create-order", async (req, res) => {
-
   try {
 
     const { salesRep, client, items } = req.body;
 
     const lineItems = items.map(item => ({
-      variant_id: item.variant_id,
+      variantId: `gid://shopify/ProductVariant/${item.variant_id}`,
       quantity: item.quantity
     }));
 
-    const orderPayload = {
-      order: {
-        line_items: lineItems,
-        financial_status: "paid",
-        note_attributes: [
-          { name: "Sales Rep", value: salesRep },
-          { name: "Client", value: client }
+    const mutation = `
+      mutation orderCreate($input: OrderInput!) {
+        orderCreate(input: $input) {
+          order {
+            id
+            name
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      input: {
+        lineItems: lineItems,
+        noteAttributes: [
+          { name: "Sales Rep", value: salesRep || "" },
+          { name: "Client", value: client || "" }
         ],
-        tags: "Internal Order"
+        tags: ["Internal Order"],
+        financialStatus: PAID
       }
     };
 
     const response = await fetch(
-      `https://${SHOP}/admin/api/2024-01/orders.json`,
+      `https://${SHOP}/admin/api/2026-01/graphql.json`,
       {
         method: "POST",
         headers: {
           "X-Shopify-Access-Token": TOKEN,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(orderPayload)
+        body: JSON.stringify({
+          query: mutation,
+          variables: variables
+        })
       }
     );
 
     const data = await response.json();
+
+    if (data.errors || data.data.orderCreate.userErrors.length > 0) {
+      console.error(data);
+      return res.status(400).json(data);
+    }
 
     res.json(data);
 
@@ -50,7 +72,6 @@ app.post("/create-order", async (req, res) => {
     console.error(error);
     res.status(500).json({ error: "Order creation failed" });
   }
-
 });
 
 app.get("/", (req, res) => {
